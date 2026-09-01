@@ -1,0 +1,23 @@
+[package]
+name = "regf-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Le-Syl21"]
+rust-version = "1.81"
+license = "MIT OR Apache-2.0"
+description = "Pure-Rust reader and in-place writer for Windows Registry hive files (REGF format), no_std-friendly."
+repository = "https://github.com/Le-Syl21/regf-rs"
+readme = "README.md"
+keywords = ["windows", "registry", "regf", "hive", "bcd"]
+categories = ["parsing", "no-std", "filesystem"]
+
+[features]
+default = ["std"]
+# `alloc` : cœur du moteur (Vec, String). Toujours requis.
+alloc = []
+# `std` : conforts nécessitant un OS (accès fichier, impl std::error::Error).
+std = ["alloc"]
+
+[dev-dependencies]
+# Oracle de validation croisée : implémentation REGF indépendante, lecture seule.
+nt-hive = "0.3.0"
