@@ -1,0 +1,43 @@
+name: Release
+
+# Publie sur crates.io lorsqu'un tag de version « vX.Y.Z » est poussé.
+# Prérequis : le secret de dépôt CARGO_REGISTRY_TOKEN (jeton crates.io).
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Garde-fou : le tag « vX.Y.Z » doit correspondre à la version du Cargo.toml.
+      - name: Vérifie la cohérence tag ↔ version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CRATE="$(cargo metadata --format-version 1 --no-deps \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["packages"][0]["version"])')"
+          echo "tag=$TAG  Cargo.toml=$CRATE"
+          test "$TAG" = "$CRATE" || { echo "::error::le tag ($TAG) diffère de la version du Cargo.toml ($CRATE)"; exit 1; }
+
+      # Qualité : mêmes garanties que la CI, avant toute publication.
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy (strict)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test
+
+      # Empaquetage vérifié puis publication.
+      - name: Publish
+        run: cargo publish --token "${CARGO_REGISTRY_TOKEN}"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
