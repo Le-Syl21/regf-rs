@@ -1,4 +1,4 @@
-//! API haut niveau : chargement, navigation, lecture et écriture in-place.
+//! High-level API: loading, navigation, reading and in-place writing.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -10,14 +10,14 @@ use crate::header::Header;
 use crate::name;
 use crate::value::RegValue;
 
-/// Une ruche REGF chargée en mémoire.
+/// A REGF hive loaded in memory.
 #[derive(Clone)]
 pub struct Hive {
     data: Vec<u8>,
     header: Header,
 }
 
-/// Vue publique d'un nœud de clé.
+/// Public view of a key node.
 #[derive(Debug, Clone)]
 pub struct KeyNode {
     pub name: String,
@@ -27,23 +27,23 @@ pub struct KeyNode {
 }
 
 impl KeyNode {
-    /// Data offset de ce nœud dans la ruche (relatif aux hive bins).
+    /// This node's data offset within the hive (relative to the hive bins).
     pub fn offset(&self) -> u32 {
         self.offset
     }
 }
 
 impl Hive {
-    // -- Chargement ---------------------------------------------------------
+    // -- Loading ------------------------------------------------------------
 
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let header = Header::parse(&data)?;
         Ok(Hive { data, header })
     }
 
-    /// Crée une ruche vierge valide : base block, un hive bin, un nœud racine
-    /// nommé `root_name` et un descripteur de sécurité minimal partageable.
-    /// Utile pour bâtir des ruches de test ou neuves sans fichier d'origine.
+    /// Creates a valid empty hive: base block, one hive bin, a root node named
+    /// `root_name` and a minimal shareable security descriptor. Useful to build
+    /// test or fresh hives without a source file.
     pub fn new_empty(root_name: &str) -> Self {
         const HBIN: usize = 0x1000;
         let mut data = alloc::vec![0u8; crate::header::REGF_HEADER_SIZE + HBIN];
@@ -59,11 +59,11 @@ impl Hive {
         wr(&mut data, 0x28, HBIN as u32); // hive bins size
         wr(&mut data, 0x2C, 1); // clustering factor
 
-        // Premier hive bin, puis une grande cellule libre.
+        // First hive bin, then one large free cell.
         let hb = crate::header::REGF_HEADER_SIZE;
         data[hb..hb + 4].copy_from_slice(b"hbin");
-        wr(&mut data, hb + 4, 0); // offset du bin
-        wr(&mut data, hb + 8, HBIN as u32); // taille du bin
+        wr(&mut data, hb + 4, 0); // bin offset
+        wr(&mut data, hb + 8, HBIN as u32); // bin size
         let free_cell = hb + 0x20;
         let free_size = (HBIN - 0x20) as i32;
         data[free_cell..free_cell + 4].copy_from_slice(&free_size.to_le_bytes());
@@ -74,10 +74,10 @@ impl Hive {
             header: header.clone(),
         };
 
-        // Descripteur de sécurité minimal (self-relative, DACL absente).
+        // Minimal security descriptor (self-relative, no DACL).
         let sk = build_min_security();
         let sk_off = hive.alloc_write(&sk).expect("alloc sk");
-        // flink/blink auto-référents + refcount = 1.
+        // Self-referential flink/blink + refcount = 1.
         {
             let p = hbin::payload_mut(&mut hive.data, sk_off).unwrap();
             p[4..8].copy_from_slice(&sk_off.to_le_bytes());
@@ -85,16 +85,16 @@ impl Hive {
             p[12..16].copy_from_slice(&1u32.to_le_bytes());
         }
 
-        // Nœud racine.
+        // Root node.
         let nk = cell::build_key_node(root_name, cell::FREE, sk_off);
         let nk_off = hive.alloc_write(&nk).expect("alloc nk");
-        // Marque les drapeaux racine (hive entry | no delete | comp name).
+        // Set the root flags (hive entry | no delete | comp name).
         {
             let p = hbin::payload_mut(&mut hive.data, nk_off).unwrap();
             p[2..4].copy_from_slice(&0x2Cu16.to_le_bytes());
         }
 
-        // root_cell_offset dans l'en-tête + resync de la structure Header.
+        // root_cell_offset in the header + resync of the Header struct.
         wr(&mut hive.data, 0x24, nk_off);
         header = Header::parse_unchecked(&hive.data);
         hive.header = header;
@@ -111,7 +111,7 @@ impl Hive {
         &self.header
     }
 
-    /// Voir [`Header::is_dirty`].
+    /// See [`Header::is_dirty`].
     pub fn is_dirty(&self) -> bool {
         self.header.is_dirty()
     }
@@ -122,7 +122,7 @@ impl Hive {
         self.node_at(self.header.root_cell_offset)
     }
 
-    /// Ouvre une clé par chemin (séparateur `\`), insensible à la casse.
+    /// Opens a key by path (separator `\`), case-insensitive.
     pub fn open(&self, path: &str) -> Result<KeyNode> {
         self.node_at(self.resolve(path)?)
     }
@@ -160,11 +160,11 @@ impl Hive {
         Err(RegError::ValueNotFound(value_name.to_string()))
     }
 
-    // -- Écriture -----------------------------------------------------------
+    // -- Writing ------------------------------------------------------------
 
-    /// Crée les clés manquantes le long du chemin et renvoie l'offset de la
-    /// clé finale. Chaque niveau créé hérite du descripteur de sécurité de son
-    /// parent et est inséré en position triée dans la liste de sous-clés.
+    /// Creates the missing keys along the path and returns the final key's
+    /// offset. Each created level inherits its parent's security descriptor and
+    /// is inserted in sorted position within the subkey list.
     pub fn create_key(&mut self, path: &str) -> Result<KeyNode> {
         self.guard_writable()?;
         let mut current = self.header.root_cell_offset;
@@ -177,12 +177,12 @@ impl Hive {
         self.node_at(current)
     }
 
-    /// Définit (crée ou remplace) une valeur sous une clé existante.
+    /// Sets (creates or replaces) a value under an existing key.
     pub fn set_value(&mut self, key_path: &str, value_name: &str, value: RegValue) -> Result<()> {
         self.guard_writable()?;
         let nk_off = self.resolve(key_path)?;
 
-        // Encodage de la donnée (owned : aucun emprunt ne traverse une alloc).
+        // Encode the data (owned: no borrow crosses an allocation).
         let bytes = value.to_bytes();
         if bytes.len() > cell::BIG_DATA_LIMIT {
             return Err(RegError::ValueTooLarge {
@@ -203,15 +203,15 @@ impl Hive {
         let vk_payload = cell::build_value_node(value_name, ty, size, data_field, inline);
         let new_vk = self.alloc_write(&vk_payload)?;
 
-        // Liste de valeurs existante.
+        // Existing value list.
         let nk = cell::read_key_node(&self.data, nk_off)?;
         let existing = cell::value_offsets(&self.data, nk.value_list_offset, nk.value_count)?;
 
-        // Remplacement si le nom existe déjà.
+        // Replace if the name already exists.
         for (i, &vk_off) in existing.iter().enumerate() {
             let vk = cell::read_value_node(&self.data, vk_off)?;
             if name::eq_name(&vk.name, value_name) {
-                // Remplace l'offset dans la liste (taille inchangée).
+                // Replace the offset in the list (size unchanged).
                 let list_payload = hbin::payload_mut(&mut self.data, nk.value_list_offset)?;
                 list_payload[i * 4..i * 4 + 4].copy_from_slice(&new_vk.to_le_bytes());
                 self.free_value_storage(&vk)?;
@@ -220,7 +220,7 @@ impl Hive {
             }
         }
 
-        // Ajout : nouvelle liste de valeurs = anciennes + la nouvelle.
+        // Append: new value list = old ones + the new one.
         let mut offs = existing;
         offs.push(new_vk);
         let new_list = self.write_value_list(&offs)?;
@@ -241,7 +241,7 @@ impl Hive {
         Ok(())
     }
 
-    /// Supprime une valeur. Erreur si elle n'existe pas.
+    /// Deletes a value. Errors if it does not exist.
     pub fn delete_value(&mut self, key_path: &str, value_name: &str) -> Result<()> {
         self.guard_writable()?;
         let nk_off = self.resolve(key_path)?;
@@ -284,11 +284,11 @@ impl Hive {
         Ok(())
     }
 
-    // -- Sérialisation ------------------------------------------------------
+    // -- Serialization ------------------------------------------------------
 
-    /// Finalise l'en-tête (séquences + checksum) et renvoie les octets de la
-    /// ruche. Consomme un « cran » de séquence : chaque appel produit une
-    /// transaction cohérente distincte.
+    /// Finalizes the header (sequences + checksum) and returns the hive bytes.
+    /// Consumes one sequence "tick": each call produces a distinct consistent
+    /// transaction.
     pub fn to_bytes(&mut self) -> Vec<u8> {
         self.header.finalize(&mut self.data);
         self.data.clone()
@@ -300,7 +300,7 @@ impl Hive {
         std::fs::write(path, bytes)
     }
 
-    // -- Internes -----------------------------------------------------------
+    // -- Internals ----------------------------------------------------------
 
     fn guard_writable(&self) -> Result<()> {
         if self.header.is_dirty() {
@@ -339,24 +339,24 @@ impl Hive {
         Ok(out)
     }
 
-    /// Crée une sous-clé `name` sous `parent`, insérée en position triée.
+    /// Creates a subkey `name` under `parent`, inserted in sorted position.
     fn insert_subkey(&mut self, parent: u32, name_new: &str) -> Result<u32> {
         let parent_nk = cell::read_key_node(&self.data, parent)?;
 
-        // Sécurité héritée du parent (compteur de références incrémenté).
+        // Security inherited from the parent (reference count incremented).
         let security = parent_nk.security_offset;
         cell::incr_security_refcount(&mut self.data, security)?;
 
-        // Nouveau nk.
+        // New nk.
         let nk_payload = cell::build_key_node(name_new, parent, security);
         let new_off = self.alloc_write(&nk_payload)?;
 
-        // Entrées existantes + la nouvelle, triées.
+        // Existing entries + the new one, sorted.
         let mut entries = self.child_entries(parent)?;
         entries.push((name_new.to_string(), new_off));
         entries.sort_by(|a, b| name::cmp_str(&a.0, &b.0));
 
-        // Format feuille préservé (ri aplati en lf).
+        // Leaf format preserved (ri flattened to lf).
         let kind =
             if parent_nk.subkey_list_offset == cell::FREE || parent_nk.subkey_list_offset == 0 {
                 LeafKind::Lf
@@ -366,10 +366,10 @@ impl Hive {
         let list_payload = cell::build_leaf_list(kind, &entries);
         let new_list = self.alloc_write(&list_payload)?;
 
-        // Libère l'ancienne liste (et ses sous-listes si c'était un ri).
+        // Free the old list (and its sublists if it was a ri).
         self.free_subkey_list(parent_nk.subkey_list_offset)?;
 
-        // Met à jour le parent.
+        // Update the parent.
         cell::set_nk_field(&mut self.data, parent, cell::NK_SUBKEY_LIST, new_list)?;
         cell::set_nk_field(
             &mut self.data,
@@ -380,13 +380,13 @@ impl Hive {
         Ok(new_off)
     }
 
-    /// Libère une liste de sous-clés. Pour un `ri`, libère aussi chaque
-    /// sous-liste feuille qu'il référence.
+    /// Frees a subkey list. For a `ri`, also frees each leaf sublist it
+    /// references.
     fn free_subkey_list(&mut self, list_off: u32) -> Result<()> {
         if list_off == cell::FREE || list_off == 0 {
             return Ok(());
         }
-        // Repère les sous-listes ri avant de libérer.
+        // Collect the ri sublists before freeing.
         let sublists: Vec<u32> = {
             let p = cell::cell_payload(&self.data, list_off)?;
             if p.len() >= 4 && &p[0..2] == b"ri" {
@@ -417,7 +417,7 @@ impl Hive {
         self.alloc_write(&payload)
     }
 
-    /// Libère la cellule de données d'un vk (si elle n'est pas inline).
+    /// Frees a vk's data cell (unless it is inline).
     fn free_value_storage(&mut self, vk: &cell::ValueNodeRaw) -> Result<()> {
         if !vk.inline && vk.data_size != 0 && vk.data_offset != cell::FREE && vk.data_offset != 0 {
             hbin::free(&mut self.data, vk.data_offset, self.header.hive_bins_size)?;
@@ -425,7 +425,7 @@ impl Hive {
         Ok(())
     }
 
-    /// Alloue une cellule et y écrit `payload`.
+    /// Allocates a cell and writes `payload` into it.
     fn alloc_write(&mut self, payload: &[u8]) -> Result<u32> {
         let off = hbin::allocate(
             &mut self.data,
@@ -453,19 +453,19 @@ fn wr(data: &mut [u8], off: usize, v: u32) {
     data[off..off + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-/// Descripteur de sécurité auto-relatif minimal (40 octets de cellule sk).
+/// Minimal self-relative security descriptor (a 40-byte sk cell).
 fn build_min_security() -> Vec<u8> {
-    // sk : "sk"(2) rsvd(2) flink(4) blink(4) refcount(4) sd_size(4) sd(20)
+    // sk: "sk"(2) rsvd(2) flink(4) blink(4) refcount(4) sd_size(4) sd(20)
     let mut p = alloc::vec![0u8; 2 + 2 + 4 + 4 + 4 + 4 + 20];
     p[0..2].copy_from_slice(b"sk");
-    // flink/blink/refcount remplis par l'appelant (offset connu après alloc).
+    // flink/blink/refcount filled by the caller (offset known after alloc).
     let sd_size = 20u32;
     p[16..20].copy_from_slice(&sd_size.to_le_bytes());
-    // Security descriptor self-relative : revision 1, control SE_SELF_RELATIVE.
+    // Self-relative security descriptor: revision 1, control SE_SELF_RELATIVE.
     let sd = 20;
     p[sd] = 1; // revision
     p[sd + 2..sd + 4].copy_from_slice(&0x8000u16.to_le_bytes()); // control
-                                                                 // owner/group/sacl/dacl offsets = 0 (absents)
+                                                                 // owner/group/sacl/dacl offsets = 0 (absent)
     p
 }
 
@@ -496,11 +496,11 @@ mod tests {
         assert!(dirty.is_dirty());
     }
 
-    /// Une ruche sale (séquences divergentes) refuse toute écriture.
+    /// A dirty hive (diverging sequences) must reject any write.
     #[test]
     fn refuses_write_on_dirty_hive() {
-        // Ruche vierge valide, rendue « sale » en désynchronisant les séquences
-        // puis en recalculant le checksum pour qu'elle reste parsable.
+        // Valid empty hive, made "dirty" by desyncing the sequences, then
+        // recomputing the checksum so it stays parsable.
         let mut data = Hive::new_empty("ROOT").to_bytes();
         let primary = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
         data[0x08..0x0C].copy_from_slice(&primary.wrapping_add(1).to_le_bytes());
@@ -519,7 +519,7 @@ mod tests {
         ));
     }
 
-    /// Après finalisation, la ruche est propre (séquences égales).
+    /// After finalization, the hive is clean (equal sequences).
     #[test]
     fn finalize_makes_clean() {
         let mut hive = Hive::new_empty("ROOT");

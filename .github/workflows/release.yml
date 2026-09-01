@@ -1,9 +1,9 @@
 name: Release
 
-# Publie sur crates.io lorsqu'un tag « vX.Y.Z » est poussé, via Trusted
-# Publishing (OIDC) : aucun token n'est stocké dans le dépôt. La confiance est
-# établie côté crates.io par une configuration Trusted Publishing pointant ce
-# dépôt et ce fichier de workflow.
+# Publishes to crates.io when a "vX.Y.Z" tag is pushed, via Trusted
+# Publishing (OIDC): no token is stored in the repository. Trust is
+# established on the crates.io side by a Trusted Publishing configuration
+# pointing at this repository and this workflow file.
 on:
   push:
     tags: ["v*"]
@@ -15,7 +15,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # requis pour l'échange OIDC avec crates.io
+      id-token: write # required for the OIDC exchange with crates.io
       contents: read
     steps:
       - uses: actions/checkout@v4
@@ -24,16 +24,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # Garde-fou : le tag « vX.Y.Z » doit correspondre à la version du Cargo.toml.
-      - name: Vérifie la cohérence tag ↔ version
+      # Guard: the "vX.Y.Z" tag must match the Cargo.toml version.
+      - name: Check tag ↔ version consistency
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           CRATE="$(cargo metadata --format-version 1 --no-deps \
             | python3 -c 'import sys,json;print(json.load(sys.stdin)["packages"][0]["version"])')"
           echo "tag=$TAG  Cargo.toml=$CRATE"
-          test "$TAG" = "$CRATE" || { echo "::error::le tag ($TAG) diffère de la version du Cargo.toml ($CRATE)"; exit 1; }
+          test "$TAG" = "$CRATE" || { echo "::error::tag ($TAG) differs from Cargo.toml version ($CRATE)"; exit 1; }
 
-      # Qualité : mêmes garanties que la CI, avant toute publication.
+      # Quality: same guarantees as CI, before any publication.
       - name: Format
         run: cargo fmt --check
       - name: Clippy (strict)
@@ -41,8 +41,8 @@ jobs:
       - name: Tests
         run: cargo test
 
-      # Jeton temporaire obtenu par OIDC (aucun secret stocké).
-      - name: Authentification crates.io (OIDC)
+      # Temporary token obtained via OIDC (no stored secret).
+      - name: crates.io authentication (OIDC)
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
 

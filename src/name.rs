@@ -1,20 +1,19 @@
-//! Comparaison et hachage des noms de clés selon les règles Windows.
+//! Key-name comparison and hashing following Windows rules.
 //!
-//! Les noms de clés du registre sont **insensibles à la casse**. Windows
-//! ordonne les listes de sous-clés (`lf`/`lh`) selon la casse-repliée, et
-//! effectue une recherche binaire dessus : une liste mal ordonnée rend des
-//! clés introuvables côté Windows. Ce module fournit l'ordre et le hachage
-//! de référence.
+//! Registry key names are **case-insensitive**. Windows orders subkey lists
+//! (`lf`/`lh`) by case-folded name and binary-searches them: a mis-ordered
+//! list makes keys unfindable on the Windows side. This module provides the
+//! reference ordering and hashing.
 //!
-//! Le repliage de casse est appliqué unité de code UTF-16 par unité de code.
-//! Pour le plan ASCII (couvrant la totalité des noms de registre standard,
-//! BCD compris) il reproduit exactement `RtlUpcaseUnicodeString`. Au-delà,
-//! les unités de code non-ASCII sont comparées telles quelles ; c'est une
-//! limite assumée et documentée, cohérente avec le hachage `lh` ci-dessous.
+//! Case folding is applied per UTF-16 code unit. For the ASCII plane (which
+//! covers every standard registry name, BCD included) it exactly matches
+//! `RtlUpcaseUnicodeString`. Beyond that, non-ASCII code units are compared
+//! as-is; this is a documented, accepted limitation, consistent with the `lh`
+//! hash below.
 
 use core::cmp::Ordering;
 
-/// Replie une unité de code UTF-16 en majuscule (plan ASCII).
+/// Folds a UTF-16 code unit to uppercase (ASCII plane).
 #[inline]
 fn upcase(u: u16) -> u16 {
     if (b'a' as u16..=b'z' as u16).contains(&u) {
@@ -24,9 +23,9 @@ fn upcase(u: u16) -> u16 {
     }
 }
 
-/// Compare deux noms comme le fait Windows : unité UTF-16 par unité,
-/// après repliage de casse. `a` est une chaîne Rust, `b` un itérateur
-/// d'unités de code UTF-16 (représentation d'un nom stocké).
+/// Compares two names the way Windows does: UTF-16 code unit by code unit,
+/// after case folding. `a` is a Rust string, `b` an iterator of UTF-16 code
+/// units (a stored name's representation).
 pub fn cmp_name(a: &str, b_units: impl Iterator<Item = u16>) -> Ordering {
     let mut ai = a.encode_utf16();
     let mut bi = b_units;
@@ -45,20 +44,20 @@ pub fn cmp_name(a: &str, b_units: impl Iterator<Item = u16>) -> Ordering {
     }
 }
 
-/// Compare deux noms Rust entre eux (même règle).
+/// Compares two Rust names with each other (same rule).
 pub fn cmp_str(a: &str, b: &str) -> Ordering {
     cmp_name(a, b.encode_utf16())
 }
 
-/// Égalité insensible à la casse selon la même règle.
+/// Case-insensitive equality under the same rule.
 pub fn eq_name(a: &str, b: &str) -> bool {
     cmp_str(a, b) == Ordering::Equal
 }
 
-/// Hachage `lh` d'un nom : `hash = hash * 37 + upcase(octet)` sur les octets
-/// ASCII majuscules du nom. C'est le hachage stocké dans les entrées `lh`,
-/// que Windows compare avant le nom lors de la recherche binaire ; il doit
-/// donc être exact.
+/// `lh` hash of a name: `hash = hash * 37 + upcase(byte)` over the name's
+/// uppercased ASCII bytes. This is the hash stored in `lh` entries, which
+/// Windows compares before the name during binary search; it must therefore
+/// be exact.
 pub fn lh_hash(name: &str) -> u32 {
     let mut hash: u32 = 0;
     for &b in name.as_bytes() {
@@ -86,7 +85,7 @@ mod tests {
     fn ordering_matches_ascii_upcase() {
         assert_eq!(cmp_str("A", "b"), core::cmp::Ordering::Less);
         assert_eq!(cmp_str("a", "B"), core::cmp::Ordering::Less);
-        // prefixe plus court < plus long
+        // shorter prefix < longer
         assert_eq!(cmp_str("ab", "abc"), core::cmp::Ordering::Less);
     }
 
@@ -101,9 +100,9 @@ mod tests {
     fn hash_is_case_insensitive() {
         assert_eq!(lh_hash("abc"), lh_hash("ABC"));
         assert_ne!(lh_hash("abc"), lh_hash("abd"));
-        // Non nul pour une entrée non vide.
+        // Non-zero for a non-empty entry.
         let _: Vec<u32> = ["a", "bb"].iter().map(|s| lh_hash(s)).collect();
         assert_ne!(lh_hash("Element"), 0);
-        assert_eq!("".to_string().len(), 0); // garde alloc utilisé
+        assert_eq!("".to_string().len(), 0); // keeps alloc used
     }
 }

@@ -3,20 +3,20 @@ mod common;
 use common::{synthetic_bcd, BOOTMGR, OSLOADER};
 use regf_rs::{Hive, RegValue};
 
-/// Une ruche vierge doit être valide selon nt-hive.
+/// A fresh hive must be valid according to nt-hive.
 #[test]
 fn new_empty_is_valid() {
     let mut h = Hive::new_empty("BCD");
     let bytes = h.to_bytes();
     let nt = nt_hive::Hive::new(bytes.as_ref()).expect("nt-hive parse");
-    nt.validate().expect("structure valide");
+    nt.validate().expect("valid structure");
     assert_eq!(
         nt.root_key_node().unwrap().name().unwrap().to_string(),
         "BCD"
     );
 }
 
-/// La fixture synthétique se relit correctement (nous + nt-hive).
+/// The synthetic fixture reads back correctly (us + nt-hive).
 #[test]
 fn synthetic_bcd_roundtrips() {
     let mut h = synthetic_bcd();
@@ -29,7 +29,7 @@ fn synthetic_bcd_roundtrips() {
     let bytes = h.to_bytes();
     let nt = nt_hive::Hive::new(bytes.as_ref()).unwrap();
     nt.validate().unwrap();
-    // Recherche binaire côté nt-hive (⇒ listes triées correctement).
+    // Binary search on the nt-hive side (⇒ correctly sorted lists).
     let root = nt.root_key_node().unwrap();
     assert!(root.subpath(&path).is_some());
 }

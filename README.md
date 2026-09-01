@@ -1,77 +1,76 @@
 # regf-rs
 
-Lecteur et écrivain in-place de ruches de registre Windows (**format REGF**),
-en Rust pur — sans dépendance C, `no_std`-compatible.
+Pure-Rust reader and in-place writer for Windows Registry hive files
+(**REGF format**) — no C dependency, `no_std`-friendly.
 
-REGF est le format des ruches du registre : `SYSTEM`, `SOFTWARE`, `NTUSER.DAT`,
-et le **BCD** (`\EFI\Microsoft\Boot\BCD`). Le paysage Rust actuel est lacunaire :
-`nt-hive` lit mais n'écrit pas, `regf` ne crée que des ruches neuves, et les
-solutions complètes passent par des bindings C (`hivex`). `regf-rs` vise la case
-manquante : **lecture + écriture in-place**, en Rust pur et testée en croisé.
+REGF is the format of registry hives: `SYSTEM`, `SOFTWARE`, `NTUSER.DAT`, and
+the **BCD** (`\EFI\Microsoft\Boot\BCD`). The current Rust landscape has a gap:
+`nt-hive` reads but does not write, `regf` only creates fresh hives, and the
+complete solutions go through C bindings (`hivex`). `regf-rs` targets the
+missing slot: **reading + in-place writing**, in pure Rust and cross-checked.
 
-## Statut
+## Status
 
-- [x] **Lecture** : en-tête + checksum, navigation des clés (`nk`), listes de
-      sous-clés (`lf`/`lh`/`li`/`ri`), valeurs (`vk`) de tous types `REG_*`,
-      données inline et big-data (`db`).
-- [x] **Écriture in-place** : allocation premier-ajustement avec scission,
-      libération avec coalescence, **insertion triée** dans les listes de
-      sous-clés (indispensable à la recherche binaire de Windows), création de
-      clés (sécurité héritée du parent), (dé)définition de valeurs, recalcul du
-      checksum et des numéros de séquence.
-- [x] **Sûreté** : refus d'écrire sur une ruche non réconciliée (transaction
-      log en attente) ; les valeurs « big data » sont lues mais refusées en
-      écriture (`ValueTooLarge`) plutôt que de produire une ruche douteuse.
-- [x] **Tests** : validation croisée avec [`nt-hive`](https://crates.io/crates/nt-hive)
-      (implémentation REGF indépendante) sur une vraie ruche BCD, y compris la
-      recherche binaire des clés créées.
+- [x] **Reading**: header + checksum, key navigation (`nk`), subkey lists
+      (`lf`/`lh`/`li`/`ri`), values (`vk`) of every `REG_*` type, inline data
+      and big data (`db`).
+- [x] **In-place writing**: first-fit allocation with splitting, freeing with
+      coalescing, **sorted insertion** into subkey lists (required by Windows'
+      binary search), key creation (security inherited from the parent),
+      setting/deleting values, checksum and sequence-number recomputation.
+- [x] **Safety**: refuses to write to an unreconciled hive (pending transaction
+      log); "big data" values are read but refused on write (`ValueTooLarge`)
+      rather than producing a questionable hive.
+- [x] **Tests**: cross-checked against
+      [`nt-hive`](https://crates.io/crates/nt-hive) (an independent REGF
+      implementation), including the binary search of created keys.
 
-### Limites assumées
+### Accepted limitations
 
-- Le repliage de casse des noms couvre le plan ASCII (suffisant pour les noms
-  de registre standard) ; les noms non-ASCII sont comparés unité par unité.
-- Les listes `ri` traversées lors d'une insertion sont réécrites en une liste
-  feuille `lf` plate (valide jusqu'à 65 535 sous-clés) plutôt que rééquilibrées.
-- L'écriture d'une valeur unique est plafonnée à une cellule (< 16 Kio) ;
-  au-delà, `ValueTooLarge`.
+- Name case folding covers the ASCII plane (enough for standard registry
+  names); non-ASCII names are compared code unit by code unit.
+- `ri` lists traversed during an insertion are rewritten as a single flat `lf`
+  leaf list (valid up to 65,535 subkeys) rather than rebalanced.
+- Writing a single value is capped at one cell (< 16 KiB); beyond that,
+  `ValueTooLarge`.
 
 ## `no_std`
 
-Le cœur ne dépend que de `core` + `alloc`. La feature `std` (par défaut) ajoute
-`Hive::from_file` et `impl std::error::Error`.
+The core depends only on `core` + `alloc`. The `std` feature (default) adds
+`Hive::from_file` and `impl std::error::Error`.
 
 ```toml
-# usage courant (std)
+# common use (std)
 regf-rs = "0"
-# contexte UEFI / embarqué
+# UEFI / embedded context
 regf-rs = { version = "0", default-features = false, features = ["alloc"] }
 ```
 
 ## Tests
 
-La suite est **autonome** : elle construit une ruche BCD synthétique en mémoire
-(`Hive::new_empty` + `create_key`/`set_value`) et la valide en croisé avec
-[`nt-hive`](https://crates.io/crates/nt-hive). Aucune ruche personnelle n'est
-versionnée.
+The suite is **self-contained**: it builds a synthetic BCD hive in memory
+(`Hive::new_empty` + `create_key`/`set_value`) and cross-checks it against
+[`nt-hive`](https://crates.io/crates/nt-hive). No personal hive is versioned.
 
 ```sh
-cargo test                    # suite complète (std)
-cargo test --no-default-features --features alloc   # cœur no_std
+cargo test                    # full suite (std)
+cargo test --no-default-features --features alloc   # no_std core
 ```
 
-Pour valider en plus contre une vraie ruche produite par Windows, pointer la
-variable `REGF_TEST_HIVE` vers un fichier local (jamais committé) :
+To additionally validate against a real hive produced by Windows, point the
+`REGF_TEST_HIVE` variable at a local file (never committed):
 
 ```sh
 REGF_TEST_HIVE=/boot/efi/EFI/Microsoft/Boot/BCD cargo test --test real_hive
 ```
 
-## Licence
+## License
 
-Sous double licence, au choix :
+Licensed under either of, at your option:
 
 - Apache License 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- Licence MIT ([LICENSE-MIT](LICENSE-MIT))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
 
-Sauf mention contraire explicite, toute contribution soumise pour inclusion
-dans ce dépôt est réputée sous cette double licence, sans clause additionnelle.
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this repository shall be dual-licensed as above, without any
+additional terms or conditions.

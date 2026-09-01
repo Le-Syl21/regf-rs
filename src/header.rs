@@ -1,6 +1,6 @@
 use crate::error::{RegError, Result};
 
-/// Taille du base block REGF (et offset de départ des hive bins).
+/// REGF base block size (and start offset of the hive bins).
 pub const REGF_HEADER_SIZE: usize = 0x1000;
 
 const SIGNATURE: &[u8; 4] = b"regf";
@@ -10,7 +10,7 @@ const OFF_ROOT_CELL: usize = 0x24;
 const OFF_HIVE_BINS_SIZE: usize = 0x28;
 const OFF_CHECKSUM: usize = 0x1FC;
 
-/// Base block d'une ruche : en-tête de 4096 octets précédant les hive bins.
+/// A hive base block: the 4096-byte header preceding the hive bins.
 #[derive(Debug, Clone)]
 pub struct Header {
     pub primary_sequence: u32,
@@ -46,8 +46,9 @@ impl Header {
         })
     }
 
-    /// Parse l'en-tête sans vérifier le checksum. Réservé à la construction
-    /// interne d'une ruche en cours d'assemblage (checksum pas encore calculé).
+    /// Parses the header without verifying the checksum. Reserved for the
+    /// internal construction of a hive being assembled (checksum not yet
+    /// computed).
     pub(crate) fn parse_unchecked(data: &[u8]) -> Self {
         Header {
             primary_sequence: rd(data, OFF_PRIMARY_SEQ),
@@ -59,14 +60,14 @@ impl Header {
         }
     }
 
-    /// Une ruche est « sale » si ses deux numéros de séquence diffèrent :
-    /// elle a été interrompue en cours d'écriture et un transaction log
-    /// reste à rejouer. Y écrire sans réconciliation la corromprait.
+    /// A hive is "dirty" when its two sequence numbers differ: it was
+    /// interrupted mid-write and a transaction log remains to be replayed.
+    /// Writing to it without reconciliation would corrupt it.
     pub fn is_dirty(&self) -> bool {
         self.primary_sequence != self.secondary_sequence
     }
 
-    /// Checksum REGF : XOR des 127 premiers mots de 32 bits (octets 0..508).
+    /// REGF checksum: XOR of the first 127 32-bit words (bytes 0..508).
     pub fn checksum(data: &[u8]) -> u32 {
         let mut sum = 0u32;
         for i in 0..127 {
@@ -79,14 +80,14 @@ impl Header {
         }
     }
 
-    /// Réécrit dans `data` les champs de l'en-tête susceptibles d'avoir changé
-    /// (taille des hive bins, séquences), incrémente le compteur de version
-    /// pour marquer une nouvelle transaction cohérente, puis recalcule le
-    /// checksum. À appeler après toute modification, avant sérialisation.
+    /// Rewrites into `data` the header fields that may have changed (hive bins
+    /// size, sequences), bumps the version counter to mark a new consistent
+    /// transaction, then recomputes the checksum. Call after any modification,
+    /// before serialization.
     pub fn finalize(&mut self, data: &mut [u8]) {
         let next = self.primary_sequence.wrapping_add(1);
         self.primary_sequence = next;
-        self.secondary_sequence = next; // égaux ⇒ ruche propre
+        self.secondary_sequence = next; // equal ⇒ clean hive
         wr(data, OFF_PRIMARY_SEQ, next);
         wr(data, OFF_SECONDARY_SEQ, next);
         wr(data, OFF_HIVE_BINS_SIZE, self.hive_bins_size);

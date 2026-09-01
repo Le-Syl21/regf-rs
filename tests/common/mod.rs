@@ -1,26 +1,26 @@
-//! Fixture synthétique partagée : une ruche façon BCD construite en mémoire,
-//! sans aucune donnée machine réelle. Permet des tests autonomes (CI) et
-//! reproductibles, sans versionner de ruche personnelle.
+//! Shared synthetic fixture: a BCD-like hive built in memory,
+//! with no real machine data. Enables self-contained (CI) and
+//! reproducible tests, without versioning any personal hive.
 
 #![allow(dead_code)]
 
 use regf_rs::{Hive, RegValue};
 
-/// GUID fixe du Windows Boot Manager (constante publique Microsoft, non liée
-/// à une machine).
+/// Fixed Windows Boot Manager GUID (a public Microsoft constant, not tied
+/// to any machine).
 pub const BOOTMGR: &str = "{9dea862c-5cdd-4e70-acc1-f32b344d4795}";
-/// GUID neutre jouant le rôle d'« OS loader » par défaut (inventé).
+/// Neutral GUID acting as the default "OS loader" (made up).
 pub const OSLOADER: &str = "{11111111-2222-3333-4444-555555555555}";
 
-/// Construit une ruche BCD-like : `Objects\{bootmgr}\Elements\{23000003,
-/// 24000001, 25000004}` renseignés comme dans un vrai BCD, plus un objet
-/// OS loader. Aucune valeur identifiante.
+/// Builds a BCD-like hive: `Objects\{bootmgr}\Elements\{23000003,
+/// 24000001, 25000004}` filled as in a real BCD, plus an OS loader
+/// object. No identifying value.
 pub fn synthetic_bcd() -> Hive {
     let mut h = Hive::new_empty("BCD");
 
     let bootmgr_elems = format!("Objects\\{BOOTMGR}\\Elements");
     h.create_key(&bootmgr_elems).unwrap();
-    // DefaultObject → l'OS loader.
+    // DefaultObject → the OS loader.
     set(
         &mut h,
         &bootmgr_elems,
@@ -42,7 +42,7 @@ pub fn synthetic_bcd() -> Hive {
         RegValue::Binary(vec![30, 0, 0, 0, 0, 0, 0, 0]),
     );
 
-    // Un objet OS loader minimal.
+    // A minimal OS loader object.
     let os_elems = format!("Objects\\{OSLOADER}\\Elements");
     h.create_key(&os_elems).unwrap();
     set(

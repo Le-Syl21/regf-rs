@@ -1,5 +1,5 @@
 #![cfg(feature = "std")]
-//! Lecture, validée en croisé avec `nt-hive` sur une ruche synthétique.
+//! Reading, cross-checked against `nt-hive` on a synthetic hive.
 mod common;
 use common::{synthetic_bcd, BOOTMGR, OSLOADER};
 use regf_rs::RegValue;
@@ -32,7 +32,7 @@ fn reads_values_of_all_kinds() {
     let _ = h.to_bytes();
 }
 
-/// Oracle : mêmes sous-clés vues par regf-rs et par nt-hive.
+/// Oracle: same subkeys seen by regf-rs and nt-hive.
 #[test]
 fn cross_check_with_nt_hive() {
     let mut h = synthetic_bcd();

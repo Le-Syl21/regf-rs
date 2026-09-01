@@ -1,55 +1,54 @@
 use alloc::string::String;
 use core::fmt;
 
-/// Résultat spécialisé du crate.
+/// Crate-specific result type.
 pub type Result<T> = core::result::Result<T, RegError>;
 
-/// Erreurs de lecture/écriture d'une ruche REGF.
+/// Errors when reading or writing a REGF hive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegError {
-    /// Signature de base block absente ("regf" attendu).
+    /// Base block signature missing ("regf" expected).
     BadSignature,
-    /// Checksum d'en-tête invalide.
+    /// Invalid header checksum.
     BadChecksum { expected: u32, found: u32 },
-    /// Buffer tronqué : lecture hors limites à l'offset donné.
+    /// Truncated buffer: out-of-bounds read at the given offset.
     Truncated { offset: usize },
-    /// Cellule incohérente (taille ou signature).
+    /// Inconsistent cell (size or signature).
     CorruptCell { offset: usize },
-    /// Clé absente au chemin demandé.
+    /// Key missing at the requested path.
     KeyNotFound(String),
-    /// Valeur absente sous la clé demandée.
+    /// Value missing under the requested key.
     ValueNotFound(String),
-    /// Écriture refusée : la ruche n'a pas été proprement fermée
-    /// (numéros de séquence divergents, transaction log en attente).
+    /// Write rejected: the hive was not cleanly closed
+    /// (diverging sequence numbers, pending transaction log).
     DirtyHive,
-    /// Donnée de valeur trop grande pour l'implémentation d'écriture actuelle
-    /// (les segments « big data » ne sont pas produits en écriture).
+    /// Value data too large for the current write implementation
+    /// ("big data" segments are not produced on write).
     ValueTooLarge { size: usize, max: usize },
 }
 
 impl fmt::Display for RegError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RegError::BadSignature => write!(f, "signature REGF absente (\"regf\" attendu)"),
+            RegError::BadSignature => write!(f, "missing REGF signature (expected \"regf\")"),
             RegError::BadChecksum { expected, found } => {
                 write!(
                     f,
-                    "checksum d'en-tête invalide : {expected:#010x} attendu, {found:#010x} lu"
+                    "invalid header checksum: expected {expected:#010x}, found {found:#010x}"
                 )
             }
-            RegError::Truncated { offset } => write!(f, "buffer tronqué à l'offset {offset}"),
-            RegError::CorruptCell { offset } => write!(f, "cellule corrompue à l'offset {offset}"),
-            RegError::KeyNotFound(p) => write!(f, "clé introuvable : {p}"),
-            RegError::ValueNotFound(v) => write!(f, "valeur introuvable : {v}"),
-            RegError::DirtyHive => write!(
-                f,
-                "ruche non réconciliée (transaction log en attente) : écriture refusée"
-            ),
-            RegError::ValueTooLarge { size, max } => {
+            RegError::Truncated { offset } => write!(f, "buffer truncated at offset {offset}"),
+            RegError::CorruptCell { offset } => write!(f, "corrupt cell at offset {offset}"),
+            RegError::KeyNotFound(p) => write!(f, "key not found: {p}"),
+            RegError::ValueNotFound(v) => write!(f, "value not found: {v}"),
+            RegError::DirtyHive => {
                 write!(
                     f,
-                    "valeur de {size} octets trop grande (max {max} en écriture)"
+                    "unreconciled hive (pending transaction log): write rejected"
                 )
+            }
+            RegError::ValueTooLarge { size, max } => {
+                write!(f, "value of {size} bytes is too large (max {max} on write)")
             }
         }
     }

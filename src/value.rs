@@ -1,9 +1,9 @@
-//! Typage et (dé)sérialisation des valeurs de registre (`REG_*`).
+//! Typing and (de)serialization of registry values (`REG_*`).
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
-/// Type d'une valeur de registre (champ `type` d'une cellule `vk`).
+/// A registry value's type (the `type` field of a `vk` cell).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum RegType {
@@ -16,7 +16,7 @@ pub enum RegType {
     Link = 6,
     MultiSz = 7,
     Qword = 11,
-    /// Type non répertorié : conservé tel quel.
+    /// Unlisted type: preserved as-is.
     Other(u32),
 }
 
@@ -51,7 +51,7 @@ impl RegType {
     }
 }
 
-/// Valeur de registre décodée.
+/// A decoded registry value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegValue {
     None,
@@ -62,7 +62,7 @@ pub enum RegValue {
     DwordBigEndian(u32),
     MultiSz(Vec<String>),
     Qword(u64),
-    /// Type non standard : octets bruts + code de type.
+    /// Non-standard type: raw bytes + type code.
     Other {
         ty: u32,
         data: Vec<u8>,
@@ -70,7 +70,7 @@ pub enum RegValue {
 }
 
 impl RegValue {
-    /// Type REGF correspondant.
+    /// Corresponding REGF type.
     pub fn reg_type(&self) -> RegType {
         match self {
             RegValue::None => RegType::None,
@@ -85,7 +85,7 @@ impl RegValue {
         }
     }
 
-    /// Encode la valeur en octets bruts (contenu de la cellule de données).
+    /// Encodes the value to raw bytes (a data cell's content).
     pub fn to_bytes(&self) -> Vec<u8> {
         match self {
             RegValue::None => Vec::new(),
@@ -99,14 +99,14 @@ impl RegValue {
                 for s in items {
                     out.extend(encode_utf16z(s));
                 }
-                out.extend_from_slice(&[0, 0]); // terminateur final
+                out.extend_from_slice(&[0, 0]); // final terminator
                 out
             }
             RegValue::Other { data, .. } => data.clone(),
         }
     }
 
-    /// Décode une valeur à partir de son type et de ses octets bruts.
+    /// Decodes a value from its type and raw bytes.
     pub fn from_raw(ty: RegType, data: &[u8]) -> Self {
         match ty {
             RegType::None => RegValue::None,
@@ -139,7 +139,7 @@ fn encode_utf16z(s: &str) -> Vec<u8> {
     for u in s.encode_utf16() {
         out.extend_from_slice(&u.to_le_bytes());
     }
-    out.extend_from_slice(&[0, 0]); // NUL terminal
+    out.extend_from_slice(&[0, 0]); // trailing NUL
     out
 }
 
@@ -162,7 +162,7 @@ fn decode_multi_sz(data: &[u8]) -> Vec<String> {
     for u in units {
         if u == 0 {
             if cur.is_empty() {
-                break; // double NUL = fin
+                break; // double NUL = end
             }
             out.push(String::from_utf16_lossy(&cur));
             cur.clear();
@@ -189,7 +189,7 @@ mod tests {
         let ty = v.reg_type();
         let bytes = v.to_bytes();
         let back = RegValue::from_raw(ty, &bytes);
-        assert_eq!(v, back, "round-trip échoué pour {v:?}");
+        assert_eq!(v, back, "round-trip failed for {v:?}");
     }
 
     #[test]

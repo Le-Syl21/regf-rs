@@ -1,5 +1,5 @@
 #![cfg(feature = "std")]
-//! Écriture in-place, validée en croisé avec `nt-hive` sur une ruche synthétique.
+//! In-place writing, cross-checked against `nt-hive` on a synthetic hive.
 mod common;
 use common::{synthetic_bcd, BOOTMGR};
 use regf_rs::{Hive, RegValue};
@@ -40,8 +40,8 @@ fn modify_default_object() {
     assert_eq!(nt_lookup(&bytes, &path).as_deref(), Some(target));
 }
 
-/// LE cas qui piégeait viva-uefi-regf : créer une clé absente et vérifier que
-/// nt-hive la TROUVE par recherche binaire (⇒ insérée en position triée).
+/// THE case that tripped up viva-uefi-regf: create a missing key and check
+/// that nt-hive FINDS it by binary search (⇒ inserted in sorted position).
 #[test]
 fn create_boot_sequence_is_findable() {
     let mut h = synthetic_bcd();
@@ -58,13 +58,13 @@ fn create_boot_sequence_is_findable() {
     let nt = nt_hive::Hive::new(bytes.as_ref()).unwrap();
     assert!(
         nt.root_key_node().unwrap().subpath(&seq).is_some(),
-        "clé trouvable par recherche"
+        "key findable by lookup"
     );
 
     let subkeys = nt_subkeys(&bytes, &elements);
     let mut sorted = subkeys.clone();
     sorted.sort();
-    assert_eq!(subkeys, sorted, "sous-clés ordonnées");
+    assert_eq!(subkeys, sorted, "subkeys ordered");
     assert!(subkeys.contains(&"24000002".to_string()));
 }
 
@@ -123,7 +123,7 @@ fn write_preserves_unrelated_data() {
     let bytes = h.to_bytes();
     validate(&bytes);
     let objects: BTreeSet<String> = nt_subkeys(&bytes, "Objects").into_iter().collect();
-    assert_eq!(objects.len(), 2); // bootmgr + os loader intacts
+    assert_eq!(objects.len(), 2); // bootmgr + os loader intact
 }
 
 #[test]

@@ -1,6 +1,6 @@
-//! Structures REGF : lecture des nœuds de clé (`nk`), des valeurs (`vk`),
-//! des listes de sous-clés (`lf`/`lh`/`li`/`ri`) et des données (`db`),
-//! ainsi que la construction des charges utiles pour l'écriture.
+//! REGF structures: reading key nodes (`nk`), values (`vk`), subkey lists
+//! (`lf`/`lh`/`li`/`ri`) and data (`db`), plus building the payloads used for
+//! writing.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -15,7 +15,7 @@ const FLAG_VK_COMP_NAME: u16 = 0x0001;
 const INLINE_BIT: u32 = 0x8000_0000;
 const BIG_DATA_THRESHOLD: usize = 16344;
 
-/// Renvoie la charge utile (hors champ de taille) de la cellule au data offset.
+/// Returns the payload (excluding the size field) of the cell at the data offset.
 pub fn cell_payload(data: &[u8], data_offset: u32) -> Result<&[u8]> {
     let idx = abs(data_offset);
     if idx + 4 > data.len() {
@@ -30,7 +30,7 @@ pub fn cell_payload(data: &[u8], data_offset: u32) -> Result<&[u8]> {
 }
 
 // ---------------------------------------------------------------------------
-// Nœud de clé (nk)
+// Key node (nk)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ pub fn read_key_node(data: &[u8], data_offset: u32) -> Result<KeyNodeRaw> {
     })
 }
 
-/// Construit la charge utile d'un nouveau `nk` feuille (sans sous-clé ni valeur).
+/// Builds the payload of a new leaf `nk` (no subkey, no value).
 pub fn build_key_node(name: &str, parent: u32, security: u32) -> Vec<u8> {
     let ascii = name.is_ascii();
     let name_bytes = encode_name(name, ascii);
@@ -86,7 +86,7 @@ pub fn build_key_node(name: &str, parent: u32, security: u32) -> Vec<u8> {
     p
 }
 
-/// Modifie en place un champ u32 d'un nk (via son data offset).
+/// Sets a `nk` u32 field in place (via its data offset).
 pub fn set_nk_field(data: &mut [u8], nk_offset: u32, field_off: usize, value: u32) -> Result<()> {
     let p = crate::hbin::payload_mut(data, nk_offset)?;
     if field_off + 4 > p.len() {
@@ -103,10 +103,10 @@ pub const NK_VALUE_COUNT: usize = 36;
 pub const NK_VALUE_LIST: usize = 40;
 
 // ---------------------------------------------------------------------------
-// Listes de sous-clés (lf / lh / li / ri)
+// Subkey lists (lf / lh / li / ri)
 // ---------------------------------------------------------------------------
 
-/// Format d'une liste feuille, préservé lors des réécritures.
+/// A leaf list's format, preserved across rewrites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafKind {
     Lf,
@@ -114,7 +114,7 @@ pub enum LeafKind {
     Li,
 }
 
-/// Renvoie les offsets de nk d'une liste (résout `ri` récursivement).
+/// Returns the nk offsets of a list (resolving `ri` recursively).
 pub fn subkey_offsets(data: &[u8], list_offset: u32) -> Result<Vec<u32>> {
     if list_offset == 0 || list_offset == FREE {
         return Ok(Vec::new());
@@ -162,8 +162,8 @@ pub fn subkey_offsets(data: &[u8], list_offset: u32) -> Result<Vec<u32>> {
     Ok(out)
 }
 
-/// Détecte le format feuille d'une liste (pour préserver `lf`/`lh`/`li`).
-/// Une liste `ri` est aplatie en `lf` par convention (voir `build_leaf_list`).
+/// Detects a list's leaf format (to preserve `lf`/`lh`/`li`). A `ri` list is
+/// flattened to `lf` by convention (see `build_leaf_list`).
 pub fn leaf_kind(data: &[u8], list_offset: u32) -> Result<LeafKind> {
     if list_offset == 0 || list_offset == FREE {
         return Ok(LeafKind::Lf);
@@ -176,8 +176,8 @@ pub fn leaf_kind(data: &[u8], list_offset: u32) -> Result<LeafKind> {
     }
 }
 
-/// Construit une liste feuille triée à partir d'entrées `(nom, nk_offset)`.
-/// Les entrées doivent déjà être triées selon [`crate::name::cmp_str`].
+/// Builds a sorted leaf list from `(name, nk_offset)` entries. Entries must
+/// already be sorted according to [`crate::name::cmp_str`].
 pub fn build_leaf_list(kind: LeafKind, entries: &[(String, u32)]) -> Vec<u8> {
     let magic: &[u8; 2] = match kind {
         LeafKind::Lf => b"lf",
@@ -193,7 +193,7 @@ pub fn build_leaf_list(kind: LeafKind, entries: &[(String, u32)]) -> Vec<u8> {
         wr(&mut p, base, *off);
         match kind {
             LeafKind::Lf => {
-                // Indice : 4 premiers octets ASCII du nom.
+                // Hint: first 4 ASCII bytes of the name.
                 let hint = name.as_bytes();
                 for j in 0..4 {
                     p[base + 4 + j] = *hint.get(j).unwrap_or(&0);
@@ -209,7 +209,7 @@ pub fn build_leaf_list(kind: LeafKind, entries: &[(String, u32)]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Valeurs (vk) et données (inline / db)
+// Values (vk) and data (inline / db)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -250,7 +250,7 @@ pub fn read_value_node(data: &[u8], vk_offset: u32) -> Result<ValueNodeRaw> {
     })
 }
 
-/// Lit tous les vk d'une liste de valeurs.
+/// Reads all vk offsets of a value list.
 pub fn value_offsets(data: &[u8], list_offset: u32, count: u32) -> Result<Vec<u32>> {
     if count == 0 || list_offset == 0 || list_offset == FREE {
         return Ok(Vec::new());
@@ -266,7 +266,7 @@ pub fn value_offsets(data: &[u8], list_offset: u32, count: u32) -> Result<Vec<u3
     Ok(out)
 }
 
-/// Reconstitue les octets bruts d'une valeur (gère inline et big-data `db`).
+/// Reassembles a value's raw bytes (handles inline and `db` big data).
 pub fn read_value_data(data: &[u8], vk: &ValueNodeRaw) -> Result<Vec<u8>> {
     let size = vk.data_size as usize;
     if vk.inline {
@@ -277,7 +277,7 @@ pub fn read_value_data(data: &[u8], vk: &ValueNodeRaw) -> Result<Vec<u8>> {
     }
     let cell = cell_payload(data, vk.data_offset)?;
     if size > BIG_DATA_THRESHOLD && cell.len() >= 4 && &cell[0..2] == b"db" {
-        // Big data : "db", nb segments, offset de la liste des segments.
+        // Big data: "db", segment count, offset of the segment list.
         let segments = u16::from_le_bytes(cell[2..4].try_into().unwrap()) as usize;
         let list_off = rd(cell, 4);
         let list = cell_payload(data, list_off)?;
@@ -295,8 +295,8 @@ pub fn read_value_data(data: &[u8], vk: &ValueNodeRaw) -> Result<Vec<u8>> {
     }
 }
 
-/// Construit la charge utile d'un `vk`. `data_field` vaut soit un data offset
-/// (données en cellule), soit les octets inline ; `inline`/`size` distinguent.
+/// Builds a `vk` payload. `data_field` is either a data offset (data stored in
+/// a cell) or the inline bytes; `inline`/`size` disambiguate.
 pub fn build_value_node(
     name: &str,
     ty: RegType,
@@ -328,10 +328,10 @@ pub fn build_value_node(
 pub const BIG_DATA_LIMIT: usize = BIG_DATA_THRESHOLD;
 
 // ---------------------------------------------------------------------------
-// Sécurité (sk) : incrément de compteur de références lors du partage
+// Security (sk): reference-count increment when sharing
 // ---------------------------------------------------------------------------
 
-/// Incrémente le compteur de références d'une cellule `sk` partagée.
+/// Increments the reference count of a shared `sk` cell.
 pub fn incr_security_refcount(data: &mut [u8], sk_offset: u32) -> Result<()> {
     let p = crate::hbin::payload_mut(data, sk_offset)?;
     if p.len() < 16 || &p[0..2] != b"sk" {
@@ -345,7 +345,7 @@ pub fn incr_security_refcount(data: &mut [u8], sk_offset: u32) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Utilitaires noms / lecture
+// Name / read helpers
 // ---------------------------------------------------------------------------
 
 fn decode_name(bytes: &[u8], ascii: bool) -> String {
