@@ -1,7 +1,9 @@
 name: Release
 
-# Publie sur crates.io lorsqu'un tag de version « vX.Y.Z » est poussé.
-# Prérequis : le secret de dépôt CARGO_REGISTRY_TOKEN (jeton crates.io).
+# Publie sur crates.io lorsqu'un tag « vX.Y.Z » est poussé, via Trusted
+# Publishing (OIDC) : aucun token n'est stocké dans le dépôt. La confiance est
+# établie côté crates.io par une configuration Trusted Publishing pointant ce
+# dépôt et ce fichier de workflow.
 on:
   push:
     tags: ["v*"]
@@ -12,6 +14,9 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # requis pour l'échange OIDC avec crates.io
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -36,8 +41,12 @@ jobs:
       - name: Tests
         run: cargo test
 
-      # Empaquetage vérifié puis publication.
+      # Jeton temporaire obtenu par OIDC (aucun secret stocké).
+      - name: Authentification crates.io (OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
       - name: Publish
-        run: cargo publish --token "${CARGO_REGISTRY_TOKEN}"
+        run: cargo publish
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
