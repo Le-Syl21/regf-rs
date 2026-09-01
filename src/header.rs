@@ -46,6 +46,19 @@ impl Header {
         })
     }
 
+    /// Parse l'en-tête sans vérifier le checksum. Réservé à la construction
+    /// interne d'une ruche en cours d'assemblage (checksum pas encore calculé).
+    pub(crate) fn parse_unchecked(data: &[u8]) -> Self {
+        Header {
+            primary_sequence: rd(data, OFF_PRIMARY_SEQ),
+            secondary_sequence: rd(data, OFF_SECONDARY_SEQ),
+            major_version: rd(data, 0x14),
+            minor_version: rd(data, 0x18),
+            root_cell_offset: rd(data, OFF_ROOT_CELL),
+            hive_bins_size: rd(data, OFF_HIVE_BINS_SIZE),
+        }
+    }
+
     /// Une ruche est « sale » si ses deux numéros de séquence diffèrent :
     /// elle a été interrompue en cours d'écriture et un transaction log
     /// reste à rejouer. Y écrire sans réconciliation la corromprait.

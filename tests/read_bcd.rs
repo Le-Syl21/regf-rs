@@ -1,62 +1,53 @@
 #![cfg(feature = "std")]
-
-//! Validation de la lecture contre une vraie ruche BCD, avec `nt-hive`
-//! (implémentation REGF indépendante) comme oracle croisé.
-
-use regf_rs::Hive;
-
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/bcd_sample.hive"
-);
+//! Lecture, validée en croisé avec `nt-hive` sur une ruche synthétique.
+mod common;
+use common::{synthetic_bcd, BOOTMGR, OSLOADER};
+use regf_rs::RegValue;
+use std::collections::BTreeSet;
 
 #[test]
 fn parse_header_and_root() {
-    let hive = Hive::from_file(FIXTURE).expect("chargement BCD");
-    let h = hive.header();
-    assert_eq!(
-        h.primary_sequence, h.secondary_sequence,
-        "ruche propre (séquences égales)"
-    );
-    let root = hive.root_key().expect("racine");
-    assert_eq!(root.name, "NewStoreRoot");
+    let mut h = synthetic_bcd();
+    assert!(!h.is_dirty());
+    assert_eq!(h.root_key().unwrap().name, "BCD");
+    let _ = h.to_bytes();
 }
 
 #[test]
-fn lists_objects() {
-    let hive = Hive::from_file(FIXTURE).unwrap();
-    let objects = hive.list_subkeys("Objects").expect("Objects");
-    assert_eq!(objects.len(), 18, "18 objets attendus dans le BCD de test");
+fn reads_values_of_all_kinds() {
+    let mut h = synthetic_bcd();
+    let e = format!("Objects\\{BOOTMGR}\\Elements");
+    assert_eq!(
+        h.get_value(&format!("{e}\\23000003"), "Element").unwrap(),
+        RegValue::Sz(OSLOADER.into())
+    );
+    assert_eq!(
+        h.get_value(&format!("{e}\\24000001"), "Element").unwrap(),
+        RegValue::MultiSz(vec![OSLOADER.into()])
+    );
+    assert!(matches!(
+        h.get_value(&format!("{e}\\25000004"), "Element").unwrap(),
+        RegValue::Binary(_)
+    ));
+    let _ = h.to_bytes();
 }
 
-/// Oracle : la liste des sous-clés produite par regf-rs doit être identique
-/// (en ensemble) à celle produite par nt-hive sur la même clé.
+/// Oracle : mêmes sous-clés vues par regf-rs et par nt-hive.
 #[test]
 fn cross_check_with_nt_hive() {
-    let buf = std::fs::read(FIXTURE).unwrap();
+    let mut h = synthetic_bcd();
+    let ours: BTreeSet<String> = h.list_subkeys("Objects").unwrap().into_iter().collect();
 
-    // --- regf-rs ---
-    let ours: std::collections::BTreeSet<String> = Hive::from_bytes(buf.clone())
-        .unwrap()
-        .list_subkeys("Objects")
-        .unwrap()
-        .into_iter()
-        .collect();
-
-    // --- nt-hive ---
-    let hive = nt_hive::Hive::new(buf.as_ref()).unwrap();
-    let root = hive.root_key_node().unwrap();
+    let bytes = h.to_bytes();
+    let nt = nt_hive::Hive::new(bytes.as_ref()).unwrap();
+    let root = nt.root_key_node().unwrap();
     let objects = root.subpath("Objects").unwrap().unwrap();
-    let theirs: std::collections::BTreeSet<String> = objects
+    let theirs: BTreeSet<String> = objects
         .subkeys()
         .unwrap()
         .unwrap()
         .filter_map(|k| k.ok())
         .filter_map(|k| k.name().ok().map(|n| n.to_string()))
         .collect();
-
-    assert_eq!(
-        ours, theirs,
-        "regf-rs et nt-hive doivent voir les mêmes sous-clés"
-    );
+    assert_eq!(ours, theirs);
 }

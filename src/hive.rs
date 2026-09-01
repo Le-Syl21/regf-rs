@@ -41,6 +41,66 @@ impl Hive {
         Ok(Hive { data, header })
     }
 
+    /// Crée une ruche vierge valide : base block, un hive bin, un nœud racine
+    /// nommé `root_name` et un descripteur de sécurité minimal partageable.
+    /// Utile pour bâtir des ruches de test ou neuves sans fichier d'origine.
+    pub fn new_empty(root_name: &str) -> Self {
+        const HBIN: usize = 0x1000;
+        let mut data = alloc::vec![0u8; crate::header::REGF_HEADER_SIZE + HBIN];
+
+        // Base block.
+        data[0..4].copy_from_slice(b"regf");
+        wr(&mut data, 0x04, 1); // primary sequence
+        wr(&mut data, 0x08, 1); // secondary sequence
+        wr(&mut data, 0x14, 1); // major version
+        wr(&mut data, 0x18, 5); // minor version
+        wr(&mut data, 0x1C, 0); // file type (primary)
+        wr(&mut data, 0x20, 1); // file format (direct memory load)
+        wr(&mut data, 0x28, HBIN as u32); // hive bins size
+        wr(&mut data, 0x2C, 1); // clustering factor
+
+        // Premier hive bin, puis une grande cellule libre.
+        let hb = crate::header::REGF_HEADER_SIZE;
+        data[hb..hb + 4].copy_from_slice(b"hbin");
+        wr(&mut data, hb + 4, 0); // offset du bin
+        wr(&mut data, hb + 8, HBIN as u32); // taille du bin
+        let free_cell = hb + 0x20;
+        let free_size = (HBIN - 0x20) as i32;
+        data[free_cell..free_cell + 4].copy_from_slice(&free_size.to_le_bytes());
+
+        let mut header = Header::parse_unchecked(&data);
+        let mut hive = Hive {
+            data,
+            header: header.clone(),
+        };
+
+        // Descripteur de sécurité minimal (self-relative, DACL absente).
+        let sk = build_min_security();
+        let sk_off = hive.alloc_write(&sk).expect("alloc sk");
+        // flink/blink auto-référents + refcount = 1.
+        {
+            let p = hbin::payload_mut(&mut hive.data, sk_off).unwrap();
+            p[4..8].copy_from_slice(&sk_off.to_le_bytes());
+            p[8..12].copy_from_slice(&sk_off.to_le_bytes());
+            p[12..16].copy_from_slice(&1u32.to_le_bytes());
+        }
+
+        // Nœud racine.
+        let nk = cell::build_key_node(root_name, cell::FREE, sk_off);
+        let nk_off = hive.alloc_write(&nk).expect("alloc nk");
+        // Marque les drapeaux racine (hive entry | no delete | comp name).
+        {
+            let p = hbin::payload_mut(&mut hive.data, nk_off).unwrap();
+            p[2..4].copy_from_slice(&0x2Cu16.to_le_bytes());
+        }
+
+        // root_cell_offset dans l'en-tête + resync de la structure Header.
+        wr(&mut hive.data, 0x24, nk_off);
+        header = Header::parse_unchecked(&hive.data);
+        hive.header = header;
+        hive
+    }
+
     #[cfg(feature = "std")]
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
         let data = std::fs::read(path)?;
@@ -388,19 +448,31 @@ impl Hive {
     }
 }
 
+#[inline]
+fn wr(data: &mut [u8], off: usize, v: u32) {
+    data[off..off + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+/// Descripteur de sécurité auto-relatif minimal (40 octets de cellule sk).
+fn build_min_security() -> Vec<u8> {
+    // sk : "sk"(2) rsvd(2) flink(4) blink(4) refcount(4) sd_size(4) sd(20)
+    let mut p = alloc::vec![0u8; 2 + 2 + 4 + 4 + 4 + 4 + 20];
+    p[0..2].copy_from_slice(b"sk");
+    // flink/blink/refcount remplis par l'appelant (offset connu après alloc).
+    let sd_size = 20u32;
+    p[16..20].copy_from_slice(&sd_size.to_le_bytes());
+    // Security descriptor self-relative : revision 1, control SE_SELF_RELATIVE.
+    let sd = 20;
+    p[sd] = 1; // revision
+    p[sd + 2..sd + 4].copy_from_slice(&0x8000u16.to_le_bytes()); // control
+                                                                 // owner/group/sacl/dacl offsets = 0 (absents)
+    p
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::header::{Header, REGF_HEADER_SIZE};
-
-    const FIXTURE: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/bcd_sample.hive"
-    );
-
-    fn fixture_bytes() -> Vec<u8> {
-        std::fs::read(FIXTURE).unwrap()
-    }
 
     #[test]
     fn header_dirty_detection() {
@@ -424,33 +496,33 @@ mod tests {
         assert!(dirty.is_dirty());
     }
 
-    /// Une ruche sale (séquences divergentes) doit refuser toute écriture.
+    /// Une ruche sale (séquences divergentes) refuse toute écriture.
     #[test]
     fn refuses_write_on_dirty_hive() {
-        let mut data = fixture_bytes();
-        // Rend la ruche « sale » : secondary != primary, puis recalcule le
-        // checksum pour qu'elle reste parsable.
+        // Ruche vierge valide, rendue « sale » en désynchronisant les séquences
+        // puis en recalculant le checksum pour qu'elle reste parsable.
+        let mut data = Hive::new_empty("ROOT").to_bytes();
         let primary = u32::from_le_bytes(data[0x04..0x08].try_into().unwrap());
-        data[0x08..0x0C].copy_from_slice(&(primary.wrapping_add(1)).to_le_bytes());
+        data[0x08..0x0C].copy_from_slice(&primary.wrapping_add(1).to_le_bytes());
         let sum = Header::checksum(&data);
         data[0x1FC..0x200].copy_from_slice(&sum.to_le_bytes());
 
         let mut hive = Hive::from_bytes(data).unwrap();
         assert!(hive.is_dirty());
         assert_eq!(
-            hive.set_value("Objects", "x", RegValue::Dword(1)),
+            hive.set_value("ROOT", "x", RegValue::Dword(1)),
             Err(RegError::DirtyHive)
         );
         assert!(matches!(
-            hive.create_key("Objects\\Zzz"),
+            hive.create_key("ROOT\\Zzz"),
             Err(RegError::DirtyHive)
         ));
     }
 
-    /// Après finalisation, la ruche redevient propre (séquences égales).
+    /// Après finalisation, la ruche est propre (séquences égales).
     #[test]
     fn finalize_makes_clean() {
-        let mut hive = Hive::from_bytes(fixture_bytes()).unwrap();
+        let mut hive = Hive::new_empty("ROOT");
         let _ = hive.to_bytes();
         assert!(!hive.is_dirty());
         assert_eq!(REGF_HEADER_SIZE, 0x1000);

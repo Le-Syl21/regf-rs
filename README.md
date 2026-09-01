@@ -47,6 +47,25 @@ regf-rs = "0"
 regf-rs = { version = "0", default-features = false, features = ["alloc"] }
 ```
 
+## Tests
+
+La suite est **autonome** : elle construit une ruche BCD synthétique en mémoire
+(`Hive::new_empty` + `create_key`/`set_value`) et la valide en croisé avec
+[`nt-hive`](https://crates.io/crates/nt-hive). Aucune ruche personnelle n'est
+versionnée.
+
+```sh
+cargo test                    # suite complète (std)
+cargo test --no-default-features --features alloc   # cœur no_std
+```
+
+Pour valider en plus contre une vraie ruche produite par Windows, pointer la
+variable `REGF_TEST_HIVE` vers un fichier local (jamais committé) :
+
+```sh
+REGF_TEST_HIVE=/boot/efi/EFI/Microsoft/Boot/BCD cargo test --test real_hive
+```
+
 ## Licence
 
 Sous double licence, au choix :
