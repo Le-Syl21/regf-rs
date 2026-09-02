@@ -21,7 +21,7 @@ jobs:
       contents: read
       id-token: write # needed to request the OIDC token from GitHub
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
